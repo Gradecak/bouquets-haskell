@@ -13,7 +13,7 @@ data StemAmount = StemAmount
   }
 
 instance Show StemAmount where
-  show (StemAmount a b) = show a ++ show b
+  show (StemAmount a b) = show a ++ [b]
 
 data Design = Design
   { name :: Char,
@@ -23,7 +23,7 @@ data Design = Design
   }
 
 instance Show Design where
-  show (Design n s stems cap) = show n ++ show s ++ show stems ++ show cap
+  show (Design n s stems cap) = [n] ++ show s ++ foldl (\a c -> show c ++ a) "" stems ++ show cap
 
 designStems :: Design -> [Stem]
 designStems (Design _ _ [] _) = []
@@ -34,7 +34,7 @@ designArrangements (Design _ _ stems cap) = stemArrangements stems cap
 
 options :: StemAmount -> [StemAmount]
 options (StemAmount 0 species) = []
-options s = s : options s{maxAmount=maxAmount s - 1 }
+options s = s : options s {maxAmount = maxAmount s - 1}
 
 stemArrangements :: [StemAmount] -> Int -> [[StemAmount]]
 stemArrangements [] 0 = [[]]

@@ -13,7 +13,7 @@ import Control.Monad.State
 import Data.Attoparsec.ByteString.Char8
 import qualified Data.ByteString as BS (getLine, null)
 import Data.ByteString.Char8 (ByteString)
-import qualified Data.Map as M (Map, empty, lookup, member, update)
+import qualified Data.Map as M (Map, empty, lookup, update)
 import Data.Map.Strict (insertWith)
 import Data.Maybe (catMaybes, fromMaybe, mapMaybe)
 import Parser (parseDesign, parseStem)
@@ -53,17 +53,17 @@ processStem line =
         (x : _) -> arrangeBouquet inv x
         _ -> return ()
 
-arrangeBouquet :: M.Map Stem Int -> Design -> App
+arrangeBouquet :: Inventory -> Design -> App
 arrangeBouquet inventory design =
   case _arrangeBouquet inventory design (designArrangements design) of
     Just bouquet -> do
-      liftIO (print bouquet) -- TODO print the bouquet in a format that matches spec
+      liftIO (print bouquet)
       modify (\s -> s {inventory = deductBouquet inventory bouquet})
     Nothing -> return ()
 
 -- given the current inventory, design and permutations of the design, try to find the
 -- permutation that can be satisfied from the stems in the inventory
-_arrangeBouquet :: M.Map Stem Int -> Design -> [[StemAmount]] -> Maybe Bouquet
+_arrangeBouquet :: Inventory -> Design -> [[StemAmount]] -> Maybe Bouquet
 _arrangeBouquet inventory _ [] = Nothing
 _arrangeBouquet inventory d@(Design name size _ cap) (x : xs) =
   if sum (zipWith (-) inInventory required) >= 0
@@ -75,7 +75,7 @@ _arrangeBouquet inventory d@(Design name size _ cap) (x : xs) =
 
 -- given a completed bouquet, return a new map with the bouquet stems deducted from
 -- inventory
-deductBouquet :: M.Map Stem Int -> Bouquet -> M.Map Stem Int
+deductBouquet :: Inventory -> Bouquet -> Inventory
 deductBouquet inventory (Design _ size stemAmounts _) =
   foldl (\inv (stem, amount) -> M.update (fn amount) stem inv) inventory toDeduct
   where
@@ -84,7 +84,7 @@ deductBouquet inventory (Design _ size stemAmounts _) =
 
 -- check if for a given design we have at least 1 of each stem, and the total in storage
 -- is >= capacity of the bouquet
-hasMinimumStock :: M.Map Stem Int -> Design -> Bool
+hasMinimumStock :: Inventory -> Design -> Bool
 hasMinimumStock inventory (Design _ size stemAmounts cap) =
   case sum <$> sequence stockAmounts of
     Nothing -> False
