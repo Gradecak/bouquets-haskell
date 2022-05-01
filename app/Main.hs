@@ -49,10 +49,9 @@ processStem line =
     Right stem -> do
       modify $ \s -> s {inventory = insertWith (+) stem 1 (inventory s)}
       AppState designs inv <- get
-      --      liftIO $ print inv
       case filter (hasMinimumStock inv) designs of
         (design : _) -> arrangeBouquet inv design
-        _ -> return () --void $ liftIO (print "no minimium")
+        _ -> return ()
 
 arrangeBouquet :: Inventory -> Design -> App
 arrangeBouquet inventory design =
@@ -63,7 +62,12 @@ arrangeBouquet inventory design =
       modify (\s -> s {inventory = deductBouquet inventory bouquet})
     _ -> return ()
   where
-    inInventory = map (fromMaybe 0 . (`M.lookup` inventory)) (designStems design)
+    inInventory = gatherFrom inventory design
+
+-- given a design return a list of stem amounts in the same order as the stems in the
+-- design
+gatherFrom :: Inventory -> Design -> [Int]
+gatherFrom inv d = map (fromMaybe 0 . (`M.lookup` inv)) $ designStems d
 
 -- given a completed bouquet, return a new map with the bouquet stems deducted from
 -- inventory
@@ -80,7 +84,7 @@ hasMinimumStock :: Inventory -> Design -> Bool
 hasMinimumStock inventory design =
   sum (zipWith min inInventory maximum) >= capacity design
   where
-    inInventory = map (fromMaybe 0 . (`M.lookup` inventory)) (designStems design)
+    inInventory = gatherFrom inventory design
     maximum = map maxAmount (stemAmounts design)
 
 arrangementOption :: StemAmount -> [StemAmount]
@@ -88,20 +92,13 @@ arrangementOption (StemAmount 0 species) = []
 arrangementOption s = s : arrangementOption s {maxAmount = maxAmount s - 1}
 
 findArrangement :: [Int] -> [StemAmount] -> Int -> [[StemAmount]]
+findArrangement [] (_:_) n = [[]]
 findArrangement _ [] 0 = [[]]
 findArrangement _ [] p = []
-findArrangement (y : ys) (x : xs) amount =
-  [o : z | o <- arrangementOption (x {maxAmount = opt}), z <- findArrangement ys xs (amount - maxAmount o)]
+findArrangement (inInventory : ys) (stem : xs) amount =
+  [o : z | o <- arrangementOption stemMax, z <- findArrangement ys xs (amount - maxAmount o)]
   where
-    opt = min y (maxAmount x)
-
---aL", "bS", "aS", "bS"
-s = [StemAmount 2 'a', StemAmount 2 'b']
-
-d = Design 'A' S s 3
-
-inv :: Inventory
-inv = M.fromList [(Stem 'a' L, 1), (Stem 'b' S, 2), (Stem 'a' S, 1)]
+    stemMax = stem {maxAmount = min inInventory (maxAmount stem)}
 
 runApp :: App
 runApp = untilNewline readDesign >> untilNewline processStem
