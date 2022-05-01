@@ -1,17 +1,16 @@
 module Main where
 
 import           Control.Applicative
-import           Control.Monad                    (foldM, unless, void)
+import           Control.Monad                    (unless, void)
 import           Control.Monad.State              (StateT, get, liftIO, modify,
-                                                   put, runStateT)
+                                                   runStateT)
 import           Data.Attoparsec.ByteString.Char8
 import qualified Data.ByteString                  as BS (getLine, null)
 import           Data.ByteString.Char8            (ByteString)
-import qualified Data.Map                         as M (Map, empty, fromList,
-                                                        lookup, update)
+import qualified Data.Map                         as M (Map, empty, lookup,
+                                                        update)
 import           Data.Map.Strict                  (insertWith)
-import           Data.Maybe                       (catMaybes, fromMaybe,
-                                                   mapMaybe)
+import           Data.Maybe                       (fromMaybe)
 import           Parser                           (parseDesign, parseStem)
 import           System.Exit                      (exitFailure)
 import           Types
@@ -85,9 +84,9 @@ arrangementOption (StemAmount 0 species) = []
 arrangementOption s = s : arrangementOption s { maxAmount = maxAmount s - 1 }
 
 possibleArrangements :: [Int] -> [StemAmount] -> Int -> [[StemAmount]]
-possibleArrangements [] (_ : _) n = [[]]
-possibleArrangements _  []      0 = [[]]
-possibleArrangements _  []      p = []
+possibleArrangements [] (_:_) n = [[]]
+possibleArrangements _  []    0 = [[]]
+possibleArrangements _  []    p = []
 possibleArrangements (inInventory : ys) (stem : xs) amount =
   [ o : z | o <- arrangementOption stemMax
           , z <- possibleArrangements ys xs (amount - maxAmount o)]
