@@ -23,23 +23,10 @@ data Design = Design
   }
 
 instance Show Design where
-  show (Design n s stems cap) = [n] ++ show s ++ foldl (\a c -> show c ++ a) "" stems ++ show cap
+  show (Design n s stems cap) = [n] ++ show s ++ foldr (\c a -> show c ++ a) "" stems
 
 designStems :: Design -> [Stem]
 designStems (Design _ _ [] _) = []
 designStems (Design n size (x : xs) c) = Stem (species x) size : designStems (Design n size xs c)
-
-designArrangements :: Design -> [[StemAmount]]
-designArrangements (Design _ _ stems cap) = stemArrangements stems cap
-
-options :: StemAmount -> [StemAmount]
-options (StemAmount 0 species) = []
-options s = s : options s {maxAmount = maxAmount s - 1}
-
-stemArrangements :: [StemAmount] -> Int -> [[StemAmount]]
-stemArrangements [] 0 = [[]]
-stemArrangements [] p = []
-stemArrangements (x : xs) amount =
-  [o : y | o <- options x, y <- stemArrangements xs (amount - maxAmount o)]
 
 type Bouquet = Design

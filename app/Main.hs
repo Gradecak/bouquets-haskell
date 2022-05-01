@@ -13,7 +13,7 @@ import Control.Monad.State
 import Data.Attoparsec.ByteString.Char8
 import qualified Data.ByteString as BS (getLine, null)
 import Data.ByteString.Char8 (ByteString)
-import qualified Data.Map as M (Map, empty, lookup, update)
+import qualified Data.Map as M (Map, empty, fromList, lookup, update)
 import Data.Map.Strict (insertWith)
 import Data.Maybe (catMaybes, fromMaybe, mapMaybe)
 import Parser (parseDesign, parseStem)
@@ -49,49 +49,59 @@ processStem line =
     Right stem -> do
       modify $ \s -> s {inventory = insertWith (+) stem 1 (inventory s)}
       AppState designs inv <- get
+      --      liftIO $ print inv
       case filter (hasMinimumStock inv) designs of
-        (x : _) -> arrangeBouquet inv x
-        _ -> return ()
+        (design : _) -> arrangeBouquet inv design
+        _ -> return () --void $ liftIO (print "no minimium")
 
 arrangeBouquet :: Inventory -> Design -> App
 arrangeBouquet inventory design =
-  case _arrangeBouquet inventory design (designArrangements design) of
-    Just bouquet -> do
-      liftIO (print bouquet)
+  case findArrangement inInventory (stemAmounts design) (capacity design) of
+    (arrangement : _) -> do
+      let bouquet = (design {stemAmounts = arrangement})
+      liftIO $ print bouquet
       modify (\s -> s {inventory = deductBouquet inventory bouquet})
-    Nothing -> return ()
-
--- given the current inventory, design and permutations of the design, try to find the
--- permutation that can be satisfied from the stems in the inventory
-_arrangeBouquet :: Inventory -> Design -> [[StemAmount]] -> Maybe Bouquet
-_arrangeBouquet inventory _ [] = Nothing
-_arrangeBouquet inventory d@(Design name size _ cap) (x : xs) =
-  if sum (zipWith (-) inInventory required) >= 0
-    then Just $ Design name size x cap
-    else _arrangeBouquet inventory d xs
+    _ -> return ()
   where
-    inInventory = [fromMaybe 0 $ (`M.lookup` inventory) (Stem (species sa) size) | sa <- x]
-    required = map maxAmount x
+    inInventory = map (fromMaybe 0 . (`M.lookup` inventory)) (designStems design)
 
 -- given a completed bouquet, return a new map with the bouquet stems deducted from
 -- inventory
 deductBouquet :: Inventory -> Bouquet -> Inventory
-deductBouquet inventory (Design _ size stemAmounts _) =
+deductBouquet inventory d@(Design _ _ stemAmounts _) =
   foldl (\inv (stem, amount) -> M.update (fn amount) stem inv) inventory toDeduct
   where
-    toDeduct = [(Stem (species s) size, maxAmount s) | s <- stemAmounts]
+    toDeduct = zip (designStems d) (map maxAmount stemAmounts)
     fn used inStorage = if inStorage - used <= 0 then Nothing else Just $ inStorage - used
 
 -- check if for a given design we have at least 1 of each stem, and the total in storage
 -- is >= capacity of the bouquet
 hasMinimumStock :: Inventory -> Design -> Bool
-hasMinimumStock inventory (Design _ size stemAmounts cap) =
-  case sum <$> sequence stockAmounts of
-    Nothing -> False
-    Just a | a >= cap -> True
-    _ -> False
+hasMinimumStock inventory design =
+  sum (zipWith min inInventory maximum) >= capacity design
   where
-    stockAmounts = [(`M.lookup` inventory) (Stem (species sa) size) | sa <- stemAmounts]
+    inInventory = map (fromMaybe 0 . (`M.lookup` inventory)) (designStems design)
+    maximum = map maxAmount (stemAmounts design)
+
+arrangementOption :: StemAmount -> [StemAmount]
+arrangementOption (StemAmount 0 species) = []
+arrangementOption s = s : arrangementOption s {maxAmount = maxAmount s - 1}
+
+findArrangement :: [Int] -> [StemAmount] -> Int -> [[StemAmount]]
+findArrangement _ [] 0 = [[]]
+findArrangement _ [] p = []
+findArrangement (y : ys) (x : xs) amount =
+  [o : z | o <- arrangementOption (x {maxAmount = opt}), z <- findArrangement ys xs (amount - maxAmount o)]
+  where
+    opt = min y (maxAmount x)
+
+--aL", "bS", "aS", "bS"
+s = [StemAmount 2 'a', StemAmount 2 'b']
+
+d = Design 'A' S s 3
+
+inv :: Inventory
+inv = M.fromList [(Stem 'a' L, 1), (Stem 'b' S, 2), (Stem 'a' S, 1)]
 
 runApp :: App
 runApp = untilNewline readDesign >> untilNewline processStem
