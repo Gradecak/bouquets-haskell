@@ -2,98 +2,74 @@ module Main where
 
 import           Control.Applicative
 import           Control.Monad                    (unless, void)
+import           Control.Monad.Cont               (MonadIO (liftIO))
 import           Control.Monad.State              (StateT, get, liftIO, modify,
                                                    runStateT)
 import           Data.Attoparsec.ByteString.Char8
 import qualified Data.ByteString                  as BS (getLine, null)
 import           Data.ByteString.Char8            (ByteString)
-import qualified Data.Map                         as M (Map, empty, lookup,
+import qualified Data.Map                         as M (Map, empty, fromList,
+                                                        lookup, unionWith,
                                                         update)
 import           Data.Map.Strict                  (insertWith)
-import           Data.Maybe                       (fromMaybe)
+import           Data.Maybe                       (fromMaybe, mapMaybe)
 import           Parser                           (parseDesign, parseStem)
 import           System.Exit                      (exitFailure)
 import           Types
 
 type Inventory = M.Map Stem Int
 
-data AppState = AppState
-    { designs   :: [Design]
-    , inventory :: Inventory
-    }
+data AppState = AppState [Design] Inventory
 
 type App = StateT AppState IO ()
 
--- HOF to continuously read from stdin and apply f to input until newline is
--- detected
 untilNewline :: (ByteString -> App) -> App
 untilNewline f =
-    liftIO BS.getLine >>= \l -> unless (BS.null l) $ f l >> untilNewline f
+  liftIO BS.getLine >>= \l -> unless (BS.null l) $ f l >> untilNewline f
 
 readDesign :: ByteString -> App
 readDesign line = case parseOnly parseDesign line of
-    Left  err    -> liftIO $ print err >> exitFailure
-    Right design -> modify (\s -> s { designs = design : designs s })
+  Left err     -> liftIO $ print err >> exitFailure
+  Right design -> modify (\(AppState ds i) -> AppState (design:ds) i )
+
+deductBouquet :: Inventory -> Bouquet -> Inventory
+deductBouquet inventory design =
+  M.unionWith (-) inventory toDeduct
+  where
+    toDeduct = M.fromList $ zip (designStems design) (map maxAmount $ stemAmounts design)
 
 processStem :: ByteString -> App
 processStem line = case parseOnly parseStem line of
-    Left  err  -> liftIO $ print err >> exitFailure
-    Right stem -> do
-        modify $ \s -> s { inventory = insertWith (+) stem 1 (inventory s) }
-        AppState designs inv <- get
-        case map (arrangeBouquet inv) (filter (hasMinimumStock inv) designs) of
-            (Just bouquet : _) -> do
-                liftIO (print bouquet)
-                modify (\s -> s { inventory = deductBouquet inv bouquet })
-            _ -> return ()
+  Left err -> liftIO $ print err >> exitFailure
+  Right stem -> do
+    modify $ \(AppState d i) -> AppState d $ insertWith (+) stem 1 i
+    AppState designs inv <- get
+    case mapMaybe (arrangeBouquet inv) designs of
+      (bouquet : _) -> do
+        liftIO (print bouquet)
+        modify (\(AppState d i) -> AppState d $ deductBouquet i bouquet)
+      _ -> return ()
 
-arrangeBouquet :: Inventory -> Design -> Maybe Design
-arrangeBouquet inventory design =
-    case possibleArrangements inInventory (stemAmounts design) (capacity design)
-    of
-      (arrangement : _) -> Just (design { stemAmounts = arrangement })
-      _                 -> Nothing
-    where inInventory = gatherFrom inventory design
-
--- given a design return a list of stem amounts in the same order as the stems in the
--- design
-gatherFrom :: Inventory -> Design -> [Int]
-gatherFrom inv d = map (fromMaybe 0 . (`M.lookup` inv)) $ designStems d
-
--- given a completed bouquet, return a new map with the bouquet stems deducted from
--- inventory
-deductBouquet :: Inventory -> Bouquet -> Inventory
-deductBouquet inventory d@(Design _ _ stemAmounts _) =
-  foldl (\inv (stem, amount) -> M.update (fn amount) stem inv) inventory toDeduct
+arrangeBouquet :: Inventory -> Design -> Maybe Bouquet
+arrangeBouquet inventory design
+  | null possibleArrangements = Nothing
+  | otherwise = Just $ design {stemAmounts = head possibleArrangements}
   where
-    toDeduct = zip (designStems d) (map maxAmount stemAmounts)
-    fn used inStorage =
-      if inStorage - used <= 0 then Nothing else Just $ inStorage - used
+    possibleArrangements = (arrangements . availableStems inventory) design (capacity design)
 
--- check if for a given design we have at least 1 of each stem, and the total in storage
--- is >= capacity of the bouquet
-hasMinimumStock :: Inventory -> Design -> Bool
-hasMinimumStock inventory design =
-  sum (zipWith min inInventory maximum) >= capacity design
+availableStems :: Inventory -> Design -> [StemAmount]
+availableStems inv d = zipWith minAvail (stemAmounts d) inInventory
   where
-    inInventory = gatherFrom inventory design
-    maximum     = map maxAmount (stemAmounts design)
+    inInventory = map (fromMaybe 0 . (`M.lookup` inv)) $ designStems d
+    minAvail stem inInv = stem {maxAmount = min (maxAmount stem) inInv}
 
-arrangementOption :: StemAmount -> [StemAmount]
-arrangementOption (StemAmount 0 species) = []
-arrangementOption s = s : arrangementOption s { maxAmount = maxAmount s - 1 }
-
-possibleArrangements :: [Int] -> [StemAmount] -> Int -> [[StemAmount]]
-possibleArrangements [] (_:_) n = [[]]
-possibleArrangements _  []    0 = [[]]
-possibleArrangements _  []    p = []
-possibleArrangements (inInventory : ys) (stem : xs) amount =
-  [ o : z | o <- arrangementOption stemMax
-          , z <- possibleArrangements ys xs (amount - maxAmount o)]
-    where stemMax = stem { maxAmount = min inInventory (maxAmount stem) }
-
-runApp :: App
-runApp = untilNewline readDesign >> untilNewline processStem
+arrangements :: [StemAmount] -> Int -> [[StemAmount]]
+arrangements [] 0 = [[]]
+arrangements [] p = []
+arrangements ((StemAmount 0 _) : _) _ = []
+arrangements (stem@(StemAmount m _) : xs) amount =
+  [stem {maxAmount = o} : z | o <- [m, (m -1) .. 1], z <- arrangements xs (amount - o)]
 
 main :: IO ()
-main = void $ runStateT runApp (AppState [] M.empty)
+main = void $ runStateT app (AppState [] M.empty)
+  where app = untilNewline readDesign >> untilNewline processStem
